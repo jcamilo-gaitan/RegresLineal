@@ -1,0 +1,1917 @@
+---
+title: "Segundo Reporte"
+author: "Julian Gaitan"
+date: "2026-04-26"
+output: 
+  pdf_document:
+    toc: true
+    number_sections: true
+fontsize: 11pt
+geometry: margin=2cm
+header-includes:
+  - \usepackage[spanish]{babel}
+  - \renewcommand{\contentsname}{Tabla de contenido}
+  - \usepackage{xcolor}
+  - \usepackage{sectsty}
+  - \definecolor{mainblue}{RGB}{0,102,204}
+  - \definecolor{tealsoft}{RGB}{0,150,136}
+  - \sectionfont{\color{mainblue}}
+  - \subsectionfont{\color{tealsoft}}
+  - \usepackage{hyperref}
+  - \hypersetup{colorlinks=true,linkcolor=blue,urlcolor=magenta}
+  - \usepackage{booktabs}
+  - \usepackage{float}
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+\begin{titlepage}
+\begin{center}
+
+\vspace*{1cm}
+
+\includegraphics[width=0.3\textwidth]{logoU.jpg}
+
+\vspace{1cm}
+
+{\LARGE \textbf{Pontificia Universidad Javeriana}}\\[0.5cm]
+
+{\Huge \textbf{Análisis del Precio de Vivienda en Bogota (2023)}}\\[1cm]
+
+{\Large Ciencia de Datos}\\[2cm]
+
+{\large Julian Camilo Gaitan Contreras}\\
+{\large Profesor: Gabriel Camilo Perez Castañeda}\\
+
+\vfill
+
+{\large \today}
+
+\end{center}
+\end{titlepage}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  echo= FALSE
+)
+
+```
+
+# Introducción.
+
+El presente conjunto de datos almacena propiedades de finca raiz en la
+ciudad de bogotá, para el año 2023
+
+# Objetivo
+
+Crear un modelo de regresión lineal múltiple para predecir el precio de
+un inmueble en venta de la ciudad de Bogotá para el año 2023
+
+# Pregunta problema
+
+¿Cual será el precio de un apartamento en venta en Bogotá para el año
+2023 según sus carácterísticas inmobiliarias?
+
+# Parte 1: Introducción y Análisis previo de los datos.
+
+En este apartado se realizarán ajustes previos al conjunto de datos.
+
+## `Ajuste de tipos de datos.`
+
+```{r}
+if (!require("readr")) install.packages("readr")
+if (!require("naniar")) install.packages("naniar")
+if (!require("readr")) install.packages("tidyr")
+if (!require("corrplot")) install.packages("corrplot")
+if (!require("car")) install.packages("car")
+if (!require("GGally")) install.packages("GGally")
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("lmtest")) install.packages("lmtest")
+
+library(readr)
+library(naniar)
+library(tidyr)
+library(corrplot)
+library(lmtest)
+library(car)
+library(dplyr)
+library(GGally)
+library(ggplot2)
+propiedades <- read_csv("C:/Users/CARIT/Downloads/properties.csv")
+#Quitar tildes de nombres de columnas
+names(propiedades) <- iconv(names(propiedades), from = "UTF-8", to = "ASCII//TRANSLIT")  
+
+spec(propiedades) #se deben modificar algunos tipos de datos
+
+```
+
+## Modificacion de tipos de datos.
+
+```{r}
+
+
+propiedades <- propiedades %>%
+  mutate(
+    conjunto = as.factor(conjunto),
+    administracion = as.numeric(administracion),
+    estrato = as.factor(estrato),
+    antiguedad = as.numeric(antiguedad),
+    remodelado = as.factor(remodelado),
+    area = as.numeric(area),
+    habitaciones = as.integer(habitaciones),
+    banos = as.integer(banos),
+    garajes = as.integer(garajes),
+    elevadores = as.integer(elevadores),
+    tipo_de_inmueble = as.factor(tipo_de_inmueble),
+    deposito = as.factor(deposito),
+    porteria = as.factor(porteria),
+    zona_de_lavanderia = as.factor(zona_de_lavanderia),
+    gas = as.factor(gas),
+    parqueadero = as.factor(parqueadero),
+    precio = as.numeric(precio),
+    direccion = as.factor(direccion),
+    nombre = as.factor(nombre),
+    descripcion = as.factor(descripcion),
+    barrio = as.factor(barrio)
+  )
+
+
+
+```
+
+## `Eliminación preliminar de variables.`
+
+*Se eliminan variables descriptivas de los inmuebles que no tienen
+relevancia en el problema*
+
+```{r}
+propiedades<-subset(propiedades, select=-c(descripcion,direccion,nombre,conjunto,barrio))
+
+#Barrio intuitivamente aportaría al modelo, pero se eliminará porque no hay suficientes apartamentos para todos los barrios
+
+```
+
+```{r}
+
+#BOXPLOTS
+#Datos distribucionales del conjunto de datos
+summary(propiedades)
+
+```
+
+## `Valores únicos`
+
+```{r}
+
+# Observar posibles valores por cada variable
+lapply(propiedades[sapply(propiedades, is.factor)],unique)
+
+```
+
+```{r}
+# Estandarizar los factores a "Si" o "No"
+propiedades <- propiedades %>%
+  mutate(
+    remodelado = ifelse(remodelado == "Si", "Si", "No"),
+    porteria = ifelse(porteria == "24 hrs", "Si", "No"),
+    zona_de_lavanderia = ifelse(zona_de_lavanderia == "No Tiene", "No", "Si"),
+    gas = ifelse(gas == "Si", "Si", "No"),
+    parqueadero = ifelse(parqueadero == "Si", "Si", "No"),
+    deposito = ifelse(deposito == 1, "Si", "No")
+  ) %>%
+  mutate(across(
+    c(remodelado, porteria, zona_de_lavanderia, gas, parqueadero, deposito),
+    as.factor
+  ))
+```
+
+## `Datos nulos`
+
+```{r}
+#Cantidad de datos nulos por columna
+
+gg_miss_var(propiedades)
+
+```
+
+-   En total hay `r sum(is.na(propiedades))` datos nulos en todo el
+    conjunto de datos.
+-   De los 35 datos nulos la mayoría provienen de 'gas'.
+-   la proporción de datos nulos sobre el conjunto total es de :
+    `r (sum(is.na(propiedades))/nrow(propiedades))`.
+
+Se procede a eliminar las filas con valores nulos.
+
+```{r}
+
+
+propiedades<-drop_na(propiedades)
+
+```
+
+## `Graficos de dispersion de la variable objetivo con respecto a variables explicativas`
+
+```{r}
+#Precio vs Administracion
+plot(propiedades$administracion,propiedades$precio)
+propiedades$administracion=propiedades$administracion+1
+```
+
+```{r}
+#Precio vs antiguedad
+plot(propiedades$antiguedad,propiedades$precio)
+```
+
+```{r}
+#Precio vs area
+plot(propiedades$area,propiedades$precio )
+```
+
+No se observan relaciones no-lineales.
+
+```{r}
+#Boxplots precio vs discretas
+
+discretas <- c("estrato","habitaciones","banos","deposito","parqueadero","garajes","elevadores","gas","remodelado","zona_de_lavanderia","tipo_de_inmueble","porteria")
+
+plots <- lapply(discretas, function(v){
+  ggplot(propiedades, aes(x = factor(.data[[v]]), y = precio)) +
+    geom_boxplot() +
+    labs(title = paste("precio vs", v), x = v, y = "precio")
+})
+
+plots
+```
+
+Se observan relacionales lineales entre las variables categoricas y el
+precio usando las distribuciones de precio por cada valor categórico
+como referencia.
+
+## `Graficos de dispersión entre las variables explicativas`
+
+```{r}
+num_vars <- propiedades[sapply(propiedades, is.numeric)]
+
+explicativas <- num_vars[, names(num_vars) != "precio"]
+pairs(explicativas)
+```
+
+## `Evaluación de colinealidad`
+
+Se observan algunas variables explicativas que tienen correlaciones
+entre sí .
+
+```{r fig.width=8, fig.height=6}
+#Matriz de correlación
+numericas <- propiedades[sapply(propiedades, is.numeric)]
+
+
+
+corrplot(cor(numericas), method="color", addCoef.col="black", number.cex=1.2)
+```
+
+## `Distribuciones de las variables categóricas`
+
+```{r}
+
+
+propiedades %>%
+  select(deposito, gas, parqueadero, porteria, remodelado, 
+         tipo_de_inmueble, zona_de_lavanderia) %>%
+  pivot_longer(cols = everything(),
+               names_to = "variable",
+               values_to = "categoria") %>%
+  ggplot(aes(x = categoria)) +
+  geom_bar(fill = "grey40") +
+  facet_wrap(~variable, scales = "free_x") +
+  labs(
+    title = "Distribución de categorías de los inmuebles",
+    x = "Categoría",
+    y = "Cantidad de inmuebles"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 16, face = "bold")
+  )
+```
+
+Los desbalances en variables categóricas pueden incidir en la
+significancia de sus valores al momento de calcular el modelo.
+
+## `Conclusiones - Parte 1`
+
+-   No se observaron relaciones no-lineales de las variables
+    explicativas con respecto a la variable objetivo.
+
+-   No se realizarán transformaciones de variables hasta el momento con
+    el fin de conservar interpretabilidad del modelo y también teniendo
+    en cuenta que se observaron relaciones lineales en el conjunto de
+    datos. En la parte 2 se evaluará si es necesario transformar al
+    comprobar los supuestos del modelo
+
+-   Respecto a los valores de correlación hallados, se concluye que
+    existe colinealidad NO perfecta entre algunas variables. En la parte
+    2 se evaluará si es necesario retirar o transformar variables del
+    modelo.
+
+# Parte 2: Estimación de modelos, ajuste y validación.
+
+En este apartado se harán estimaciones de modelos, ajustes y
+validaciones.
+
+## `Modelo Completo`
+
+```{r}
+
+#Modelo completo
+mod=lm(precio~.,data = propiedades)
+summary(mod)
+plot(mod)
+```
+
+-   De acuerdo al resumen, hay algunas variables no significativas para
+    estimar el precio.
+-   De acuerdo a 'Residuals vs Fitted', los residuos no tienen
+    comportamiento constante a medida que aumenta el valor predicho de
+    precio, podria sugerir heterocedasticidad
+-   De acuerdo a scale-location, puede existir heterocedasticidad porque
+    los errores son menores a precios menores y viceversa.\
+-   De acuerdo al QQplot, podria decirse pero no afirmarse que los
+    residuos NO se distrbuyen normalmente , al parecer por colas en
+    valores extremos
+-   De acuerdo al 'residuals vs leverage' existen observaciones muy
+    influyentes
+
+## `Comprobación de suspuestos del modelo completo`
+
+<center>
+
+### *1. Prueba de linealidad Y vs X - Test de Ramsey*
+
+</center>
+
+$$\begin{aligned}
+H_0 &: \text{El modelo está correctamente especificado (no hay variables omitidas ni no linealidad).} \\
+H_1 &: \text{El modelo está mal especificado (existen variables omitidas o no linealidad).}
+\end{aligned}$$
+
+```{r}
+# Prueba de linealidad 
+resettest(mod)
+```
+
+Se rechaza la hipótesis nula con alpha=0.05,
+\textcolor{red}{Hay no - linealidad o variables omitidas o comportamientos exponenciales no captados}
+
+<center>
+### * 2. Prueba de Breusch Pagan - Homocedasticidad * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \operatorname{Var}(\varepsilon_i) = \sigma^2 \quad \text{(los errores tienen varianza constante)} \\
+H_1 &: \operatorname{Var}(\varepsilon_i) \neq \sigma^2 \quad \text{(existe heterocedasticidad)}
+\end{aligned}
+$$
+
+```{r}
+
+bptest(mod)
+```
+
+Se rechaza la hipótesis nula con alpha=0.05, no existe homocedasticidad
+de los errores.
+\textcolor{red}{Existe heterocedasticidad en el modelo completo}
+
+<center>
+### * 3. Prueba de autocorrelacion de los errores - Durbin Watson *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \rho = 0 \quad \text{(no hay autocorrelación de los errores)} \\
+H_1 &: \rho \neq 0 \quad \text{(los errores están correlacionados)}
+\end{aligned}
+$$
+
+```{r}
+
+dwtest(mod)
+```
+
+NO se rechaza la hipotesis nula de que los errores son dependientes
+entre sí, se puede decir que
+\textcolor{green}{los errores son independientes entre si (ortogonales)}
+
+<center>
+### * 4. Prueba de normalidad de los errores- Shapiro *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \varepsilon_i \sim N(0, \sigma^2) \quad \text{(los residuos son normalmente distribuidos)} \\
+H_1 &: \varepsilon_i \not\sim N(0, \sigma^2) \quad \text{(los residuos no son normales)}
+\end{aligned}
+$$
+
+```{r}
+
+shapiro.test(mod$residuals)
+```
+
+Se rechaza la hipotesis nula con un nivel de significancia de 0.05 de
+que el vector dado(residuales) tiene una distribución
+normal.\textcolor{red}{ No hay normalidad de los residuales}
+
+<center>
+### *VIF -  verificacion de inflación de varianza por colinealidad* 
+</center>
+
+```{r}
+vif(mod)
+```
+
+Ningún VIF sobrepasa 5,
+\textcolor{green}{No hay inflación de varianza significativa por colinealidad}
+
+En esta parte se buscará dar solución a los problemas de supuestos
+encontrados en el modelo completo.
+
+En el modelo completo se observó heterocedasticidad; tendencia al
+aumento del error en función directa del aumento de precio predicho.
+
+También observamos no - normalidad de los errores.
+
+Por esta razón se procederá a escalar la variable precio; con el fin de
+que los valores sean mas pequeños y queden en una escala común
+
+Se procederá a eliminar del modelo las variables no significativas.
+
+## `Modelo transformado (log (precio))`
+
+```{r}
+#Creacion de una nueva columna que determina si el tipo de inmueble es casa
+propiedades$esCasa <- factor(
+  ifelse(propiedades$tipo_de_inmueble == "Casa", "Si", "No")
+)
+
+
+mod_transformado <- lm(log(precio) ~ administracion+estrato+antiguedad+area+habitaciones+banos+garajes+elevadores+esCasa+zona_de_lavanderia,data=propiedades)
+summary(mod_transformado)
+plot(mod_transformado)
+```
+
+Se observan nuevas variables no significativas, se recalculará el
+modelo:
+
+```{r}
+mod_transformado_rest<-lm(formula = log(precio) ~  + estrato  + 
+    area  + banos + garajes + elevadores + esCasa + 
+    zona_de_lavanderia, data = propiedades)
+summary(mod_transformado_rest)
+plot(mod_transformado_rest)
+```
+
+Se ha eliminado administración porque no resultó significativa. \###
+## `Comprobación de suspuestos del modelo transformado`
+
+<center>
+### * 1. Prueba de linealidad Y vs X - Test de Ramsey * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \text{El modelo está correctamente especificado (no hay variables omitidas ni no linealidad).} \\
+H_1 &: \text{El modelo está mal especificado (existen variables omitidas o no linealidad).}
+\end{aligned}
+$$
+
+```{r}
+# Prueba de linealidad 
+
+resettest(mod_transformado)
+```
+
+Se rechaza la hipotesis nula con un nivel de significancia de 0.05,
+\textcolor{red}{Hay no - linealidad o variables omitidas o comportamientos exponenciales no captados}
+
+<center>
+### * 2. Prueba de Breusch Pagan - Homocedasticidad * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \operatorname{Var}(\varepsilon_i) = \sigma^2 \quad \text{(los errores tienen varianza constante)} \\
+H_1 &: \operatorname{Var}(\varepsilon_i) \neq \sigma^2 \quad \text{(existe heterocedasticidad)}
+\end{aligned}
+$$
+
+```{r}
+
+bptest(mod_transformado_rest)
+```
+
+Se rechaza la hipótesis nula con alpha=0.05, no existe homocedasticidad
+de los errores.
+\textcolor{red}{Existe heterocedasticidad en el modelo completo}
+
+<center>
+### * 3. Prueba de autocorrelacion de los errores - Durbin Watson *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \rho = 0 \quad \text{(no hay autocorrelación de los errores)} \\
+H_1 &: \rho \neq 0 \quad \text{(los errores están correlacionados)}
+\end{aligned}
+$$
+
+```{r}
+
+dwtest(mod_transformado_rest)
+```
+
+NO se rechaza la hipotesis nula de que los errores son dependientes
+entre sí, se puede decir que
+\textcolor{green}{los errores son independientes entre si (ortogonales)}
+
+<center>
+### * 4. Prueba de normalidad de los errores- Shapiro *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \varepsilon_i \sim N(0, \sigma^2) \quad \text{(los residuos son normalmente distribuidos)} \\
+H_1 &: \varepsilon_i \not\sim N(0, \sigma^2) \quad \text{(los residuos no son normales)}
+\end{aligned}
+$$
+
+```{r}
+
+shapiro.test(mod_transformado_rest$residuals)
+```
+
+NO se rechaza la hipotesis nula con un nivel de significancia de 0.05 de
+que el vector dado(residuales) tiene una distribución
+normal.\textcolor{green}{hay normalidad de los residuales}
+
+
+
+<center>
+### *VIF -  verificacion de inflación de varianza por colinealidad* 
+</center>
+
+```{r}
+vif(mod_transformado_rest)
+```
+
+Ningún VIF sobrepasa 5,
+\textcolor{green}{No hay inflación de varianza significativa por colinealidad}
+
+Para este modelo se logró pasar la prueba de normalidad gracias a la
+transformación de la variable Y (precio), sin embargo el problema de
+heterocedasticidad sigue presente, se intentará escalar area, para dejar
+las variables numéricas en escalas similares y ver si esta variable
+predictora puede estar generando esta heterocedasticidad. (Nótese que
+previamente se ha eliminado administración o por no significancia)
+
+## `Modelo transformado log (precio) y log(area)`
+
+```{r}
+mod_transformado2<- lm(formula = log(precio) ~   estrato  + 
+    log(area)  + banos + garajes + elevadores + esCasa + 
+    zona_de_lavanderia, data = propiedades)
+summary(mod_transformado2)
+plot(mod_transformado2)
+```
+
+## `Comprobación de suspuestos del segundo modelo transformado (+log area)`
+
+<center>
+### * 1. Prueba de linealidad Y vs X - Test de Ramsey * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \text{El modelo está correctamente especificado (no hay variables omitidas ni no linealidad).} \\
+H_1 &: \text{El modelo está mal especificado (existen variables omitidas o no linealidad).}
+\end{aligned}
+$$
+
+```{r}
+# Prueba de linealidad 
+resettest(mod_transformado2)
+```
+
+Se rechaza la hipótesis nula con
+alpha=0.05,\textcolor{green}{ Hay linealidad y no existen variables omitidas o comportamientos exponenciales no captados}
+
+<center>
+### * 2. Prueba de Breusch Pagan - Homocedasticidad * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \operatorname{Var}(\varepsilon_i) = \sigma^2 \quad \text{(los errores tienen varianza constante)} \\
+H_1 &: \operatorname{Var}(\varepsilon_i) \neq \sigma^2 \quad \text{(existe heterocedasticidad)}
+\end{aligned}
+$$
+
+```{r}
+
+bptest(mod_transformado2)
+```
+
+Se rechaza la hipótesis nula con alpha=0.05, no existe homocedasticidad
+de los errores. \textcolor{red}{Existe heterocedasticidad en el modelo}
+
+<center>
+### * 3. Prueba de autocorrelacion de los errores - Durbin Watson *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \rho = 0 \quad \text{(no hay autocorrelación de los errores)} \\
+H_1 &: \rho \neq 0 \quad \text{(los errores están correlacionados)}
+\end{aligned}
+$$
+
+```{r}
+
+dwtest(mod_transformado2)
+```
+
+NO se rechaza la hipotesis nula de que los errores son dependientes
+entre sí, se puede decir que
+\textcolor{green}{los errores son independientes entre si (ortogonales)}
+
+<center>
+### * 4. Prueba de normalidad de los errores- Shapiro *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \varepsilon_i \sim N(0, \sigma^2) \quad \text{(los residuos son normalmente distribuidos)} \\
+H_1 &: \varepsilon_i \not\sim N(0, \sigma^2) \quad \text{(los residuos no son normales)}
+\end{aligned}
+$$
+
+```{r}
+
+shapiro.test(mod_transformado2$residuals)
+```
+
+No se rechaza la hipotesis nula con un nivel de significancia de 0.05 de
+que el vector dado(residuales) tiene una distribución
+normal.\textcolor{green}{ Hay normalidad de los residuales}
+
+
+<center>
+### *VIF -  verificacion de inflación de varianza por colinealidad* 
+</center>
+
+```{r}
+vif(mod_transformado2)
+```
+
+Ningún VIF sobrepasa 5,
+\textcolor{green}{No hay inflación de varianza significativa por colinealidad}
+
+De este modelo se puede concluir que re - escalar la variable área no
+fue util para lograr homocedasticidad, se realizará un modelo ponderado,
+se le dará menor peso a las observaciones que generan la mayor varianza
+del error 
+
+
+## `Modelo con pesos`
+
+Nota: Se trabaja con estrato como variable categórica tras encontrar que esta transformación es favorable para el cumplimiento de los supuestos del modelo.
+
+```{r}
+# Se incluirá el estrato "1 o 2" porque en modelos calculados el estrato 2 no resultaba significativo siendo estrato 1 la base.
+
+# Con esta transformación se logra que el estrato 1 y 2 "unan" sus grados de libertad para que sean significativas, ademas esta nueva categoria sera la base dummy de el estrato.
+propiedades$estrato <- as.character(propiedades$estrato)
+propiedades$estrato[propiedades$estrato %in% c("1", "2")] <- "1 o 2"
+propiedades$estrato <- as.factor(propiedades$estrato)
+```
+
+
+```{r}
+modelo_wls <- lm(formula = log(precio) ~ estrato  + 
+    log(area) + banos+ garajes + elevadores+ esCasa + 
+    zona_de_lavanderia, data = propiedades,weights=1/log(area)^2)
+#Se usará 1/area^2 como los pesos porque la varianza de los errores aumenta de acuerdo al precio de la vivienda, y esta depende del área
+
+
+#Se probaron varios valores de pesos, de todos ellos, este es el valor que menos restringe la varianza pero asegura homocedasticidad
+summary(modelo_wls)
+plot(modelo_wls)
+
+```
+
+## `Comprobación de suspuestos de modelo con pesos`
+
+<center>
+### * 1. Prueba de linealidad Y vs X - Test de Ramsey * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \text{El modelo está correctamente especificado (no hay variables omitidas ni no linealidad).} \\
+H_1 &: \text{El modelo está mal especificado (existen variables omitidas o no linealidad).}
+\end{aligned}
+$$
+
+```{r}
+# Prueba de linealidad
+resettest(modelo_wls)
+```
+
+Se rechaza la hipótesis nula con alpha=0.05,
+\textcolor{green}{Hay linealidad , además no hay variables omitidas o comportamientos exponenciales no captados}
+
+<center>
+### * 2. Prueba de Breusch Pagan - Homocedasticidad * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \operatorname{Var}(\varepsilon_i) = \sigma^2 \quad \text{(los errores tienen varianza constante)} \\
+H_1 &: \operatorname{Var}(\varepsilon_i) \neq \sigma^2 \quad \text{(existe heterocedasticidad)}
+\end{aligned}
+$$
+
+```{r}
+
+bptest(modelo_wls)
+```
+
+NO se rechaza la hipótesis nula con alpha=0.05,
+\textcolor{green}{ Existe homocedasticidad en el modelo completo}
+
+<center>
+### * 3. Prueba de autocorrelacion de los errores - Durbin Watson *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \rho = 0 \quad \text{(no hay autocorrelación de los errores)} \\
+H_1 &: \rho \neq 0 \quad \text{(los errores están correlacionados)}
+\end{aligned}
+$$
+
+```{r}
+
+durbinWatsonTest(modelo_wls)
+```
+
+NO se rechaza la hipotesis nula de que los errores son dependientes
+entre sí, se puede decir que
+\textcolor{green}{los errores son independientes entre si (ortogonales)}
+
+<center>
+### * 4. Prueba de normalidad de los errores- Shapiro *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \varepsilon_i \sim N(0, \sigma^2) \quad \text{(los residuos son normalmente distribuidos)} \\
+H_1 &: \varepsilon_i \not\sim N(0, \sigma^2) \quad \text{(los residuos no son normales)}
+\end{aligned}
+$$
+
+```{r}
+shapiro.test(modelo_wls$residuals)
+
+```
+
+NO se rechaza la hipotesis nula con un nivel de significancia de 0.05 de
+que el vector dado(residuales) tiene una distribución
+normal.\textcolor{green}{ Existe normalidad de los residuales }
+
+```{r}
+ncvTest(modelo_wls)
+```
+
+<center>
+### *VIF -  verificacion de inflación de varianza por colinealidad* 
+</center>
+
+```{r}
+vif(modelo_wls)
+```
+
+Ningún VIF sobrepasa 5,
+\textcolor{green}{No hay inflación de varianza significativa por colinealidad}
+
+EL modelo con pesos pasó todos los supuestos.
+
+\textcolor{orange}{ESTE MODELO ES EL MEJOR QUE SE ENCONTRÓ, CUMPLE TODOS LOS SUPUESTOS Y TIENE BUEN AJUSTE}
+
+
+# Parte 3: Exploración profunda del modelo final.
+
+## *Confusión*  
+
+
+Se obervará cúales variables existentes en el modelo son confusoras, se usará el criterio: "Si algun coeficiente cambia más del 10%, es una variable confusora":
+
+
+
+```{r}
+modelo_wls
+```
+#### Estrato
+
+Se muestra la tabla comparativa, que detalla el cambio en los B´s al quitar estrato.
+
+```{r}
+
+
+mod_A <- lm(formula = log(precio) ~ log(area) + banos + garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+mod_B <- lm(formula = log(precio) ~ estrato + log(area) + banos + garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+comunes <- intersect(names(coef(mod_A)), names(coef(mod_B)))
+
+comparacion <- data.frame(
+  Variable = comunes,
+  "A: Sin estrato" = coef(mod_A)[comunes],
+  "B: Con estrato" = coef(mod_B)[comunes],
+  "Cambio (B - A)" = coef(mod_B)[comunes] - coef(mod_A)[comunes]
+)
+
+comparacion
+```
+Se observa un cambio en el intercepto y en garajes de mas de 10%.
+
+No se elimina ninguna variable porque todas son fundamentales para explicar el fénomeno.
+
+#### log(area)
+
+Se muestra la tabla comparativa, que detalla el cambio en los B´s al quitar log(area).
+
+
+```{r}
+mod_A <- lm(formula = log(precio) ~ estrato  + banos + garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+mod_B <- lm(formula = log(precio) ~ estrato + log(area) + banos + garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+comunes <- intersect(names(coef(mod_A)), names(coef(mod_B)))
+
+comparacion <- data.frame(
+  Variable = comunes,
+  "A: Sin log(area)" = coef(mod_A)[comunes],
+  "B: Con log(area)" = coef(mod_B)[comunes],
+  "Cambio (B - A)" = coef(mod_B)[comunes] - coef(mod_A)[comunes]
+)
+
+comparacion
+```
+
+Se observa un cambio del 11% en baños.
+
+
+Por incompatibilidad con la naturaleza del fenómeno, no es posible eliminar logaritmo del área 
+
+
+#### Baños
+
+Se muestra la tabla comparativa, que detalla el cambio en los B´s al quitar baños.
+
+```{r}
+mod_A <- lm(formula = log(precio) ~ estrato  +log(area)+  garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+mod_B <- lm(formula = log(precio) ~ estrato + log(area) + banos + garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+comunes <- intersect(names(coef(mod_A)), names(coef(mod_B)))
+
+comparacion <- data.frame(
+  Variable = comunes,
+  "A: Sin baños" = coef(mod_A)[comunes],
+  "B: Con baños" = coef(mod_B)[comunes],
+  "Cambio (B - A)" = coef(mod_B)[comunes] - coef(mod_A)[comunes]
+)
+
+comparacion
+```
+
+En este caso se observa un cambion de 40% en el intercepto (B0) y uno de 14% en log(area). 
+
+No se tomara ninguna acción porque por un lado, quitar el intercepto puede hacer que se pierda interpretabilidad del modelo, y por el otro lado, los baños y los garajes es una variable que, en el contexto de negocio, es relevante en la construcción del precio de una vivienda.
+
+Por otra parte, el área es fundamental para determinar el precio de una vivienda.
+
+#### Garajes
+
+Se muestra la tabla comparativa, que detalla el cambio en los B´s al quitar Garajes.
+
+```{r}
+mod_A <- lm(formula = log(precio) ~ estrato  +log(area)+banos + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+mod_B <- lm(formula = log(precio) ~ estrato + log(area) + banos + garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+comunes <- intersect(names(coef(mod_A)), names(coef(mod_B)))
+
+comparacion <- data.frame(
+  Variable = comunes,
+  "A: Sin garajes" = coef(mod_A)[comunes],
+  "B: Con garajes" = coef(mod_B)[comunes],
+  "Cambio (B - A)" = coef(mod_B)[comunes] - coef(mod_A)[comunes]
+)
+
+comparacion
+```
+En este caso se observa un cambio de 50% en el intercepto (B0), de 13% aproximadamente en estrato5, estrato6 y log(area)
+
+No se tomara ninguna acción porqu:
+- por un lado, quitar el intercepto puede hacer que se pierda interpretabilidad del modelo.
+
+- por otro lado, la cantidad de garajes es una variable que, en el contexto de negocio, es relevante en la construcción del precio de una vivienda. 
+
+- Además no es coherente remover solamente algunos estratos del modelo, se debe poder predecir con todos los estratos de acuerdo a la lógica de negocio. el área por su parte es fundamental para determinar el precio de una vivienda
+
+
+
+Es decir, no se harán cambios en el modelo principal por la misma razón que en el análisis de baños
+
+
+#### Elevadores
+
+Se muestra la tabla comparativa, que detalla el cambio en los B´s al quitar Elevadores.
+
+```{r}
+mod_A <- lm(formula = log(precio) ~ estrato  +log(area)+banos +garajes +
+     esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+mod_B <- lm(formula = log(precio) ~ estrato + log(area) + banos + garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+comunes <- intersect(names(coef(mod_A)), names(coef(mod_B)))
+
+comparacion <- data.frame(
+  Variable = comunes,
+  "A: Sin elevadores" = coef(mod_A)[comunes],
+  "B: Con elevadores" = coef(mod_B)[comunes],
+  "Cambio (B - A)" = coef(mod_B)[comunes] - coef(mod_A)[comunes]
+)
+
+comparacion
+```
+
+En este caso se observa que la cantidad de elevadores no es una variable confusora de acuerdo al criterio empírico.
+"Si algun coeficiente cambia más del 10%, es una variable confusora"
+
+#### esCasa
+Se muestra la tabla comparativa, que detalla el cambio en los B´s al quitar esCasa.
+```{r}
+mod_A <- lm(formula = log(precio) ~ estrato  +log(area)+banos +garajes +elevadores +
+     zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+mod_B <- lm(formula = log(precio) ~ estrato + log(area) + banos + garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+comunes <- intersect(names(coef(mod_A)), names(coef(mod_B)))
+
+comparacion <- data.frame(
+  Variable = comunes,
+  "A: Sin esCasa" = coef(mod_A)[comunes],
+  "B: Con esCasa" = coef(mod_B)[comunes],
+  "Cambio (B - A)" = coef(mod_B)[comunes] - coef(mod_A)[comunes]
+)
+
+comparacion
+```
+
+En este caso se observa que la característica de ser una casa no es una variable confusora de acuerdo al criterio empírico.
+"Si algun coeficiente cambia más del 10%, es una variable confusora"
+#### zona_de_lavanderia
+Se muestra la tabla comparativa, que detalla el cambio en los B´s al quitar zona_de_lavanderia.
+```{r}
+mod_A <- lm(formula = log(precio) ~ estrato  +log(area)+banos +garajes +elevadores +esCasa
+, data = propiedades, 
+    weights = 1/log(area)^2)
+mod_B <- lm(formula = log(precio) ~ estrato + log(area) + banos + garajes + 
+    elevadores + esCasa + zona_de_lavanderia, data = propiedades, 
+    weights = 1/log(area)^2)
+comunes <- intersect(names(coef(mod_A)), names(coef(mod_B)))
+
+comparacion <- data.frame(
+  Variable = comunes,
+  "A: Sin zona_de_lavanderia" = coef(mod_A)[comunes],
+  "B: Con zona_de_lavanderia" = coef(mod_B)[comunes],
+  "Cambio (B - A)" = coef(mod_B)[comunes] - coef(mod_A)[comunes]
+)
+
+comparacion
+```
+
+
+En este caso se observa que la característica de tener zona de lavanderia no es una variable confusora de acuerdo al criterio empírico.
+"Si algun coeficiente cambia más del 10%, es una variable confusora"
+
+### Resultados - confusión.
+
+
+En conclusión , \textcolor{yellow}{existen varias variables confusoras en el modelo}:
+
+
+- Baños: el coeficiente del intercepto (B0) cambia 40% aproximadamente.
+
+- Garajes: el coeficiente del intercepto (B0) cambia 50% aproximadamente.
+
+- Estrato: Cambios de mas de 10% en coeficientes de varias variables.
+
+- log(area): Cambio de mas de 10% en un coeficiente de una variable.
+
+
+También se pudo observar que en todos las pruebas, era el intercepto el que más cambia.
+
+
+NO se consideró eliminar alguna variable por su relevancia en el modelo, sin embargo será útil saber que estas variables son confusoras.
+
+## *Interacción entre variables*
+
+Se usará el area y el precio como principales componentes de análisis, pues son las únicas variavles continuas del modelo
+
+### Relacion area vs precio de acuerdo a estratos
+```{r}
+library(ggplot2)
+
+# Asegurar que estrato sea categórico
+propiedades$estrato <- as.factor(propiedades$estrato)
+
+ggplot(propiedades, aes(x = log(area), y = log(precio), color = estrato)) +
+  geom_point(alpha = 0.5) +
+  
+  # líneas de regresión por grupo (sin interacción → paralelas)
+  geom_smooth(method = "lm", se = FALSE) +
+  
+  labs(
+    title = "Relación entre log(area) y log(precio) por estrato",
+    subtitle = ":)",
+    x = "log(Área)",
+    y = "log(Precio)",
+    color = "Estrato"
+  ) +
+  
+  theme_minimal()
+```
+
+
+Pareciera que no existe interacción entre el estrato y el area para predecir la variable precio, no obstante se observa que la linea de estrato 6 difiere de las demás e incluso se cruza, mientras que las otras conservan paralelismo.
+
+Obsérvese las proprociones:
+```{r}
+prop.table(table(propiedades$estrato))
+```
+Dado que todas las lineas son paralelas excepto estrato6, observemos cómo queda el modelo tras incluir aquella interacción
+
+```{r}
+modelo_wls_pruebainter6 <- lm(formula = log(precio) ~ estrato  + 
+    log(area) + banos+ garajes + log(area):I(estrato == 6)+ elevadores+ esCasa + 
+    zona_de_lavanderia, data = propiedades,weights=1/log(area)^2)
+summary(modelo_wls_pruebainter6)
+```
+La interacción resulta significativa, pero lleva a un problema de colinealidad: 
+```{r}
+vif(modelo_wls_pruebainter6)
+```
+ Con este problema, esta interacción queda descartada, también teniendo en cuenta que su aporte al ajuste del modelo no es significativo.
+ 
+### Relacion area vs precio de acuerdo a esCasa
+
+```{r}
+library(ggplot2)
+
+
+ggplot(propiedades, aes(x = log(area), y = log(precio), color = esCasa)) +
+  geom_point(alpha = 0.5) +
+  
+  # líneas de regresión por grupo (sin interacción → paralelas)
+  geom_smooth(method = "lm", se = FALSE) +
+  
+  labs(
+    title = "Relación entre log(area) y log(precio) por esCasa",
+    subtitle = ":)",
+    x = "log(Área)",
+    y = "log(Precio)",
+    color = "esCasa"
+  ) +
+  
+  theme_minimal()
+```
+
+Se observa una interacción con esCasa, sin embargo, como se puede ver; la mayoría de registros no son casas, lo que significa que el patron real(poblacional) puede no está correctamente ni completamente representado. Esto porque casi no se observan puntos para los registros sin casa;
+
+A continuación se observa la proporción de registros casa y no casa:
+
+```{r}
+ prop.table(table(propiedades$esCasa))
+```
+No se tendrá en cuenta la interacción en el modelo por falta de confianza estadística para determinarla.
+
+### Relacion area vs precio de acuerdo a zona_de_lavanderia.
+
+
+```{r}
+library(ggplot2)
+
+
+ggplot(propiedades, aes(x = log(area), y = log(precio), color = zona_de_lavanderia)) +
+  geom_point(alpha = 0.5) +
+  
+  # líneas de regresión por grupo (sin interacción → paralelas)
+  geom_smooth(method = "lm", se = FALSE) +
+  
+  labs(
+    title = "Relación entre log(area) y log(precio) por zona_de_lavanderia",
+    subtitle = ":)",
+    x = "log(Área)",
+    y = "log(Precio)",
+    color = "zona_de_lavanderia"
+  ) +
+  
+  theme_minimal()
+```
+Se aprecia interacción, sin embargo sucede lo mismo que en el caso anterior :
+
+
+```{r}
+prop.table(table(propiedades$zona_de_lavanderia))
+```
+
+
+## *Apalancamiento y análisis de observaciones influyentes*
+
+
+### Apalancamiento
+
+```{r include=FALSE}
+n <- nobs(mod)                # número de observaciones usadas
+p <- length(coef(modelo_wls))
+lev <- hatvalues(modelo_wls)
+thr_leverage  <- 2*p/n   
+tab_leverage <- tibble(
+  obs = seq_len(n),
+  leverage = as.numeric(lev),
+  alto_leverage = leverage > thr_leverage
+) %>% arrange(desc(leverage))
+
+tab_leverage
+# número de parámetros (incluye intercepto)
+```
+No se mostará el listado de observaciones con apalancamiento, pues son bastantes y resulta dispendioso.
+
+A continuación se muestra el apalancamiento en el conjunto de datos:
+
+```{r}
+tabla_porcentajes <- tab_leverage %>%
+  mutate(tipo = ifelse(alto_leverage, "Alto leverage", "Bajo leverage")) %>%
+  count(tipo) %>%
+  mutate(porcentaje = 100 * n / sum(n))
+
+tabla_porcentajes
+```
+
+el 9 % del conjunto de datos presenta apalancamiento, es decir: posee carácterísticas alejadas del promedio de todos los registros (X).
+
+### Influencia  
+
+Ahora se verificará la influencia.
+
+#### Distancia de cook  
+```{r}
+cook   <- cooks.distance(modelo_wls)       # Distancia de Cook
+thr_cook_soft <- 4/(n - p)             # umbral "suave"
+thr_cook_hard <- 1 
+tab_cook <- tibble(
+  obs = seq_len(n),
+  cook = as.numeric(cook),
+  flag_soft = cook > thr_cook_soft,
+  flag_hard = cook > thr_cook_hard
+) %>% arrange(desc(cook))
+
+tab_cook
+ggplot(tab_cook, aes(x = obs, y = cook)) +
+  geom_point() +
+  geom_hline(yintercept = thr_cook_soft, linetype = 2) +
+  geom_hline(yintercept = thr_cook_hard, linetype = 3) +
+  labs(title = "Distancia de Cook",
+       subtitle = paste0("Líneas: suave 4/(n-p) = ", round(thr_cook_soft,4),
+                         " · estricta = 1"),
+       x = "Índice de observación", y = "Cook's D")
+
+influyentes_cook <- tab_cook %>%
+  filter(flag_soft)
+```
+
+Existen registros influyentes con el umbral suave.
+
+
+
+#### DF FITS  
+:)
+
+
+
+
+```{r}
+dff    <- dffits(modelo_wls)               
+
+thr_dffits    <- 2*sqrt(p/n)
+tab_dff <- tibble(
+  obs = seq_len(n),
+  dffits = as.numeric(dff),
+  flag = abs(dffits) > thr_dffits
+) %>% arrange(desc(abs(dffits)))
+ggplot(tab_dff, aes(x = obs, y = dffits)) +
+  geom_point() +
+  geom_hline(yintercept =  thr_dffits, linetype = 2) +
+  geom_hline(yintercept = -thr_dffits, linetype = 2) +
+  labs(title = "DFFITS por observación",
+       subtitle = paste0("Umbral ±2·sqrt(p/n) = ±", round(thr_dffits,4)),
+       x = "Índice de observación", y = "DFFITS")
+
+obs_dff_problematicos <- tab_dff %>%
+  filter(flag)
+
+```
+
+Existen observaciones influyentes
+
+
+#### COVRATIO  
+
+```{r}
+covr <- covratio(modelo_wls)
+
+thr_cov_low   <- 1 - 3*p/n
+thr_cov_high  <- 1 + 3*p/n
+
+which(covr < thr_cov_low | covr > thr_cov_high)
+
+tab_cov <- tibble(
+  obs = seq_len(n),
+  covratio = as.numeric(covr),
+  flag = (covratio < thr_cov_low) | (covratio > thr_cov_high)
+) %>% arrange(covratio)
+ggplot(tab_cov, aes(x = obs, y = covratio)) +
+  geom_point() +
+  geom_hline(yintercept = thr_cov_low,  linetype = 2) +
+  geom_hline(yintercept = thr_cov_high, linetype = 2) +
+  labs(title = "COVRATIO por observación",
+       subtitle = paste0("Banda aceptable: [", round(thr_cov_low,4), ", ",
+                         round(thr_cov_high,4), "]"),
+       x = "Índice de observación", y = "COVRATIO")
+
+obs_covratio_problematicos <- tab_cov %>%
+  filter(flag)
+```
+
+
+Existen observaciones influyentes
+
+
+#### Coinicidencias
+
+
+¿Cuales son las observaciones en las cuales todos los métodos coinciden?
+
+
+```{r}
+library(dplyr)
+
+obs_comunes <- obs_dff_problematicos %>%
+  select(obs) %>%
+  inner_join(influyentes_cook %>% select(obs), by = "obs") %>%
+  inner_join(obs_covratio_problematicos %>% select(obs), by = "obs")
+
+obs_comunes
+```
+Existen 14 registos problematicos que influyen significativamente.
+
+```{r}
+propiedades %>%
+  slice(as.numeric(unlist(obs_comunes))) %>%
+  select(precio, area, estrato, banos, garajes, esCasa)
+```
+Estas observaciones son raras (no usuales), aunque son posibles en el estudio de este fenomeno, por dar algunos ejemplos
+
+- Observaciones 1 y 2: es raro que dos viviendas estrato 2 de similar area tengan una diferencia de 300    Millones de pesos, el mas costoso tiene 1 garaje y dos baños mas que el otro.
+
+- Observación 7: 250 Millones es demasiado para un apartamento de tan sólo 35m2 que está en un estrato 2.
+
+- Observacion 9: No es usual encontrar viviendas de 490 Millones en el estrato 1 .
+
+
+Estas observaciones NO seran excluidas del modelo, si bien son no - usuales, son propias del fenomeno, es aceptable que esto suceda en la vida real (podría suceder).
+
+
+
+## *Selección de variables usando criterios de informacion*
+
+Se usarán todas las variables del modelo actual (7), se podrá determinar si existen modelos mas pequeños que este que puedan ofrecer un ajuste similar.
+### Forward
+Aplicacion de la técnica stepwise:
+
+```{r}
+m_null= lm(log(precio)~1,data=propiedades,weights=1/log(area)^2)
+m_full=modelo_wls
+m_step_aic <- MASS::stepAIC(m_null, scope = list(lower = m_null, upper = m_full), direction = "forward", trace = TRUE)
+summary(m_step_aic)
+```
+Se obtiene el mismo modelo actual.
+### Backwards
+```{r}
+m_step_aic <- MASS::stepAIC(m_full, direction = "backward", trace = TRUE)
+```
+Se obtiene el mismo modelo actual
+
+### Hibrido
+
+```{r}
+m_zero<- lm(log(precio)~log(area),data=propiedades,weights=1/log(area)^2)
+m_step_aic <- MASS::stepAIC(m_zero, scope = list(lower = m_null, upper = m_full), direction = "both", trace = TRUE)
+```
+Se ha obtenido el mismo modelo.
+
+
+
+En los tres métodos de selección se determina que, dentro del espectro de variables propuesto, es el que mejor AIC tiene.
+
+
+Ahora se intentará probar otro modelo, ampliando el espectro de variables pero manteniendpo la estructura de pesos
+
+```{r}
+m_zero<- lm(log(precio)~log(area),data=propiedades,weights=1/log(area)^2)
+m_full=lm(log(precio)~log(area)+.,data=propiedades,weights=1/log(area)^2)
+m_step_aic <- MASS::stepAIC(m_zero, scope = list(lower = m_null, upper = m_full), direction = "both", trace = TRUE)
+summary(m_step_aic)
+
+```
+Este nuevo modelo tiene 11 predictores, aunque depositoSI tiene pvalue >0.05
+
+este modelo es interesante, mejora el ajuste en aproximadamente 0.01, sin embargo , con esta nueva combinación de variables el modelo incumple un supuesto.
+
+```{r}
+
+resettest(m_step_aic)
+```
+
+Se rechaza la hipótesis nula con alpha=0.05,
+\textcolor{red}{Hay no - linealidad o variables omitidas o comportamientos exponenciales no captados}
+
+
+Este modelo será descartado y se continuará con el actual, nótese que AIC_both=-3618.33 y AIC_actual= -3573, afortunadamente la diferencia no es demasiada
+
+
+## *Validación y pronósticos del modelo.*
+
+
+Para evitar data-leakage, se partira desde 0: Se leerán los datos de nuevo, se partiran en conjuntos de entrenamiento y pruebas, se realizarán las transformaciones necesarias y se procederá al entrenamiento y la validación del modelo
+
+```{r}
+propiedades <- read_csv("C:/Users/CARIT/Downloads/properties.csv")
+
+#Quitar tildes de nombres de columnas
+names(propiedades) <- iconv(names(propiedades), from = "UTF-8", to = "ASCII//TRANSLIT")  
+propiedades$esCasa <- factor(
+  ifelse(propiedades$tipo_de_inmueble == "Casa", "Si", "No")
+)
+# Estandarizar los factores a "Si" o "No"
+propiedades <- propiedades %>%
+  mutate(
+    remodelado = ifelse(remodelado == "Si", "Si", "No"),
+    porteria = ifelse(porteria == "24 hrs", "Si", "No"),
+    zona_de_lavanderia = ifelse(zona_de_lavanderia == "No Tiene", "No", "Si"),
+    gas = ifelse(gas == "Si", "Si", "No"),
+    parqueadero = ifelse(parqueadero == "Si", "Si", "No"),
+    deposito = ifelse(deposito == 1, "Si", "No")
+  ) %>%
+  mutate(across(
+    c(remodelado, porteria, zona_de_lavanderia, gas, parqueadero, deposito),
+    as.factor
+  ))
+propiedades <- propiedades %>%
+  mutate(
+    conjunto = as.factor(conjunto),
+    administracion = as.numeric(administracion),
+    estrato = as.factor(estrato),
+    antiguedad = as.numeric(antiguedad),
+    remodelado = as.factor(remodelado),
+    area = as.numeric(area),
+    habitaciones = as.integer(habitaciones),
+    banos = as.integer(banos),
+    garajes = as.integer(garajes),
+    elevadores = as.integer(elevadores),
+    tipo_de_inmueble = as.factor(tipo_de_inmueble),
+    deposito = as.factor(deposito),
+    porteria = as.factor(porteria),
+    zona_de_lavanderia = as.factor(zona_de_lavanderia),
+    gas = as.factor(gas),
+    parqueadero = as.factor(parqueadero),
+    precio = as.numeric(precio),
+    direccion = as.factor(direccion),
+    nombre = as.factor(nombre),
+    descripcion = as.factor(descripcion),
+    barrio = as.factor(barrio)
+  )
+propiedades<-subset(propiedades, select=-c(descripcion,direccion,nombre,conjunto,barrio))
+propiedades<-drop_na(propiedades)
+propiedades$estrato <- as.character(propiedades$estrato)
+propiedades$estrato[propiedades$estrato %in% c("1", "2")] <- "1 o 2"
+propiedades$estrato <- as.factor(propiedades$estrato)
+
+```
+
+
+```{r}
+library(dplyr)
+
+#### PARTICION DE LOS DATOS - - - - - - - - - - -
+train <- propiedades %>% sample_frac(0.8)
+
+test  <- propiedades %>% anti_join(train, by = names(propiedades))
+#### - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+modelo_finalisimo<- lm(formula = log(precio) ~ estrato  + 
+    log(area) + banos+ garajes + elevadores+ esCasa + 
+    zona_de_lavanderia, data = train,weights=1/log(area)^2)
+summary(modelo_finalisimo)
+```
+
+
+```{r}
+# Predecir
+y_pred <- predict(modelo_finalisimo, newdata = test) # Este metodo aplica las transformaciones necesarias a la prediccion para que sea coherente con el modelo entrenado
+
+
+
+```
+
+```{r}
+# =========================
+# 1. PREDICCIONES
+# =========================
+
+# Train
+y_train_log <- log(train$precio)
+y_hat_train_log <- fitted(modelo_finalisimo)
+
+# Test
+y_test_log <- log(test$precio)
+y_hat_test_log <- y_pred
+
+# =========================
+# 2. VOLVER A ESCALA ORIGINAL
+# =========================
+
+sigma2 <- summary(modelo_finalisimo)$sigma^2
+
+# Train
+y_train <- train$precio
+y_hat_train <- exp(y_hat_train_log + 0.5 * sigma2)
+
+# Test
+y_test <- test$precio
+y_hat_test <- exp(y_hat_test_log + 0.5 * sigma2)
+
+# =========================
+# 3. FUNCIÓN MÉTRICAS WLS
+# =========================
+
+metricas_wls <- function(y, yhat, w = NULL) {
+  
+  if (is.null(w)) {
+    # SIN pesos (test)
+    MAE  <- mean(abs(y - yhat))
+    MSE  <- mean((y - yhat)^2)
+    RMSE <- sqrt(MSE)
+    R2   <- 1 - sum((y - yhat)^2) / sum((y - mean(y))^2)
+    MAPE <- mean(abs((y - yhat)/y)) * 100
+    
+  } else {
+    # CON pesos (train)
+    y_bar <- weighted.mean(y, w)
+    
+    MAE  <- sum(w * abs(y - yhat)) / sum(w)
+    MSE  <- sum(w * (y - yhat)^2) / sum(w)
+    RMSE <- sqrt(MSE)
+    R2   <- 1 - sum(w * (y - yhat)^2) / sum(w * (y - y_bar)^2)
+    MAPE <- sum(w * abs((y - yhat)/y)) / sum(w) * 100
+  }
+  
+  c(MAE = MAE, MSE = MSE, RMSE = RMSE, R2 = R2, MAPE = MAPE)
+}
+
+# =========================
+# 4. PESOS (SOLO TRAIN)
+# =========================
+
+w_train <- modelo_finalisimo$weights
+
+# =========================
+# 5. CALCULAR MÉTRICAS
+# =========================
+
+# LOG
+train_log_metrics<- metricas_wls(y_train_log, y_hat_train_log)
+test_log_metrics  <- metricas_wls(y_test_log, y_hat_test_log)
+
+ # *************************POR AHORA ESTA SIN LOS PESOS *******************************
+# NIVEL
+train_lvl_metrics <- metricas_wls(y_train, y_hat_train)
+test_lvl_metrics  <- metricas_wls(y_test, y_hat_test)
+
+# =========================
+# 6. TABLA FINAL
+# =========================
+
+tabla_metricas <- rbind(
+  Train_Log    = train_log_metrics,
+  Test_Log     = test_log_metrics,
+  Train_Nivel  = train_lvl_metrics,
+  Test_Nivel   = test_lvl_metrics
+)
+options(scipen = 999)
+round(tabla_metricas, 4)
+```
+Las metricas del modelo fueron similares en conjuntos de entrenamiento y prueba tanto en log-log como en level-level.
+
+No existe evidencia de sub o sobre ajuste. El modelo tiene métricas aceptables para la predicción de precios. Se equivoca en promedio un 12% para predecir el precio.
+
+
+# *Interpretacion final*
+
+Finalmente se obtuvo que las variables predictoras logran explicar un
+89.95% de la varianza del precio, la formula. 
+$$
+w_i = \frac{1}{\left[\log(\text{area}_i)\right]^2}
+$$
+
+$$
+\begin{aligned}
+\log(\text{precio}_i) =\;& 16.6877 
++ 0.2606\,\text{estrato3}_i 
++ 0.5012\,\text{estrato4}_i 
++ 0.5503\,\text{estrato5}_i \\
+&+ 0.6120\,\text{estrato6}_i 
++ 0.4933\,\log(\text{area}_i) 
++ 0.1071\,\text{banos}_i \\
+&+ 0.1680\,\text{garajes}_i 
++ 0.0547\,\text{elevadores}_i 
++ 0.2344\,\text{esCasaSi}_i \\
+&+ 0.0568\,\text{zona\_de\_lavanderiaSi}_i 
++ \varepsilon_i
+\end{aligned}
+$$
+Nos permite dar una buena predicción del precio de un inmueble.
+
+De esta forma se obtiene que:
+
+- $(e^{0.2606} - 1) \times 100 = 29.8\%$. Una vivienda en estrato 3 tiene un precio, en promedio, $29.8\%$ mayor que una vivienda  en estrato (1 o 2).
+
+- $(e^{0.5012} - 1) \times 100 = 65.0\%$. Una vivienda en estrato 4 tiene un precio, en promedio, $65.0\%$ mayor que una vivienda en estrato (1 o 2)).
+
+- $(e^{0.5503} - 1) \times 100 = 73.4\%$. Una vivienda en estrato 5 tiene un precio, en promedio, $73.4\%$ mayor que una vivienda en estrato (1 o 2).
+
+- $(e^{0.6120} - 1) \times 100 = 84.4\%$. Una vivienda en estrato 6 tiene un precio, en promedio, $84.4\%$ mayor que una vivienda  en estrato (1 o 2).
+
+- Un aumento del 1% en el area se asocia con un aumento de 49% en el precio.
+- Un baño adicional genera un aumento de 10.7% el precio.
+- Un garaje adicional genera un aumento de 16.8% en el precio.
+- Un elevador adicional genera un aumento de 5.4% en el precio.
+- El hecho de que un inmueble sea casa aumento genera un aumento de 23.4% en el precio.
+- El hecho de que un inmueble tenga lavandería   aumento genera un aumento de 23.4% en el precio.
+
+
+
+*Como se puede apreciar, los B´s de estrato en la interpretación no son los mismos que salen en el modelo, esto porque al realizar una consulta , se descubrió que la forma correcta de interpretarlos era usando una corrección de la forma (e^{B} - 1). La principal referencia puede verse aquí: *
+
+
+*_ Halvorsen, R. & Palmquist, R. (1980). The Interpretation of Dummy Variables in Semilogarithmic Equations. American Economic Review, 70(3), 474–475. _*  
+
+
+https://scispace.com/pdf/the-interpretation-of-dummy-variables-in-semilogarithmic-54qeaggyyn.pdf
+
+## Rango
+
+El rango de predicción es en el cual el modelo puede dar predicciones acertadas con la confianza estadísitica obtenida , este es
+```{r}
+c(min(propiedades$precio),max(propiedades$precio))
+```
+Suficiente para dar un precio a bastantes inmuebles, pero no a todos los de bogotá.
+
+
+
+# *Conclusiones y hallazgos relevantes*
+
+-   Todos los modelos tuvieron R2 alto (mayor a 0.85)
+
+-   Antes de pensar en hacer transformaciones, todos los modelos
+    fallaban la prueba de linealidad, lo que da a lugar a pensar de que
+    sí existen relaciones no lineales necesarias para el modelo.
+
+-   Ajustes para validar un supuesto pueden dañar otros supuestos.
+
+-   Puede ser común encontrar segmentaciones ocultas en Precio con respecto a otras            variables   en conjuntos de datos inmobiliarios
+
+- La inclusión de variables en un formato incorrecto puede cambiart todo, en este caso estrato fue previamente tratada como entera, de esta forma se encontraron dificultades an la prueba de los supuestos. Al incluirla como factor (categorica) este problema fue solucionado facilmente.
+
+- Las observaciones que presentan apalancamiento no necesariamente son influyentes; de las 50 observaciones con apalancamiento, solo 14 se determinaron influyentes.
+
+
+
+
+# *Recomendaciones futuras* 
+- Obtener mas datos: mayor cantidad de datos
+hubiese podido crear significancia para otras variables, incluso
+pudiendo permitir que todos los supuestos se validen mas facilmente.
+
+-   Acotar la región de predicción: En el conjunto de datos existe
+    concentración de valores en algunas variables, en particular en
+    precio:
+
+```{r}
+hist(propiedades$precio)
+```
+
+- Buscar una mejora en el modelo final: Aunque modelo_wls pasa todas la prueba de linealidad, es natural pensar en interacciones, por ejemplo, entre area y estrato, e incluso la inclusión de 'administración' en alguna potencia.
+
+
+
+# Anexos
+
+
+
+## 1. Modelos calculados con estrato numérico:
+
+Nota: todo lo que esstá acá no se considera parte del análisis, por lo tanto las conclusiones presentees en esta sección no deben ser tomadas como verdaderas. 
+
+Durante el desarrollo del primer informe se habia trabajado con estrato como variable numérica, sin embargo durante la segunda entrega esto cambia para ser tratada como variable categórica, esto permitio que los supuestos de el primer modelo con pesos se cumplieran, es por ello que aquí se adjuntan los modelos que se habian intentado DESPUÉS del modelo con pesos cuando se usaba estrato como variable numerica:
+
+
+```{r}
+propiedades$estrato = as.integer(propiedades$estrato)
+```
+
+
+### `Modelo con pesos y combinaciones`
+
+
+```{r}
+
+modelo_wls2 <- lm(formula = log(precio) ~ estrato  + 
+    (log(area)*estrato) +log(area) + I(log(area)^2) +banos+ garajes + elevadores+ esCasa + 
+    zona_de_lavanderia+ I(banos/log(area)) + I(garajes/log(area)), data = propiedades,weights=1/log(area)^2)
+
+##Se usa I(log(area)^2) para destacar que los primeros metros cuadrados son mas significativos que los últimos, por ejemplo, es mas significativo pasar de 20m2 a 40m2 que de 80m2 a 100m2 
+
+##Se usa I(banos/area) y I(garajes/area) para capturar la densidad de "beneficios" por cada m2, menos baños o garajes por m2 impacta el precio negativamente, viceeversa.
+
+## se usa (log(area)*estrato) para aclarar que el m2 tiene un valor/relevancia distinto por cada estrato
+summary(modelo_wls2)
+plot(modelo_wls2)
+
+```
+
+#### `Comprobación de suspuestos de modelo con pesos y combinacion de variables`
+
+<center>
+#### * 1. Prueba de linealidad Y vs X - Test de Ramsey * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \text{El modelo está correctamente especificado (no hay variables omitidas ni no linealidad).} \\
+H_1 &: \text{El modelo está mal especificado (existen variables omitidas o no linealidad).}
+\end{aligned}
+$$
+
+```{r}
+# Prueba de linealidad
+resettest(modelo_wls2)
+```
+
+No se rechaza la hipótesis nula con alpha=0.05,
+\textcolor{green}{El modelo esta bien especificado}
+
+<center>
+#### * 2. Prueba de Breusch Pagan - Homocedasticidad * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \operatorname{Var}(\varepsilon_i) = \sigma^2 \quad \text{(los errores tienen varianza constante)} \\
+H_1 &: \operatorname{Var}(\varepsilon_i) \neq \sigma^2 \quad \text{(existe heterocedasticidad)}
+\end{aligned}
+$$
+
+```{r}
+
+bptest(modelo_wls2)
+```
+
+NO se rechaza la hipótesis nula con alpha=0.05,
+\textcolor{green}{ Existe homocedasticidad en el modelo completo}
+
+<center>
+#### * 3. Prueba de autocorrelacion de los errores - Durbin Watson *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \rho = 0 \quad \text{(no hay autocorrelación de los errores)} \\
+H_1 &: \rho \neq 0 \quad \text{(los errores están correlacionados)}
+\end{aligned}
+$$
+
+```{r}
+
+durbinWatsonTest(modelo_wls2)
+```
+
+NO se rechaza la hipotesis nula de que los errores son dependientes
+entre sí, se puede decir que
+\textcolor{green}{los errores son independientes entre si (ortogonales)}
+
+<center>
+#### * 4. Prueba de normalidad de los errores- Shapiro *
+</center>
+$$
+\begin{aligned}
+H_0 &: \varepsilon_i \sim N(0, \sigma^2) \quad \text{(los residuos son normalmente distribuidos)} \\
+H_1 &: \varepsilon_i \not\sim N(0, \sigma^2) \quad \text{(los residuos no son normales)}
+\end{aligned}
+$$
+
+```{r}
+shapiro.test(modelo_wls2$residuals)
+```
+
+NO se rechaza la hipotesis nula con un nivel de significancia de 0.05 de
+que el vector dado(residuales) tiene una distribución
+normal.\textcolor{green}{ Existe normalidad de los residuales }
+
+
+
+<center>
+#### *VIF -  verificacion de inflación de varianza por colinealidad* 
+</center>
+
+```{r}
+vif(modelo_wls2)
+```
+
+Varios VIF sobrepasan 10 por mucho,
+\textcolor{red}{Hay inflación de varianza significativa por colinealidad}
+Aqui se llegó a un modelo que cumple los cuatro supuestos clásicos: -
+Linealidad X vs Y - Homocedasticidad - Errores independientes -
+Normalidad de los errores A pesar de lo anterior, los valores vif se
+dispararon porque se hicieron combinaciones entre variables, se
+intentará hacer un modelo más donde se pueda reducir ese VIF.
+
+Para ello, se deberá evitar las combinaciones lineales, entonces se hará
+que algunos términos usen el area normal, pero otros usarán el logaritmo
+del area ,centrado por su media. Entonces así no habrá colinealidades
+tan fuertes .
+
+### Segundo Modelo con pesos y combinaciones (con centrado de log(area))
+
+```{r}
+#Centrar el logaritmo del area
+propiedades$log_area_c <- log(propiedades$area) - mean(log(propiedades$area), na.rm = TRUE)
+
+modelo_final <- lm(
+  formula = log(precio) ~ estrato * log_area_c + I(log_area_c^2) + 
+            elevadores + esCasa + I(banos/area) + I(garajes/area), 
+  data = propiedades, 
+  weights = 1 / log(area)^2
+)
+summary(modelo_final)
+plot(modelo_final)
+
+```
+
+#### `Comprobación de suspuestos del segundo modelo con pesos y combinacion de variables`
+
+<center>
+#### * 1. Prueba de linealidad Y vs X - Test de Ramsey * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \text{El modelo está correctamente especificado (no hay variables omitidas ni no linealidad).} \\
+H_1 &: \text{El modelo está mal especificado (existen variables omitidas o no linealidad).}
+\end{aligned}
+$$
+
+```{r}
+# Prueba de linealidad
+resettest(modelo_final)
+```
+
+No se rechaza la hipótesis nula con alpha=0.05,
+\textcolor{green}{El modelo esta bien especificado}
+
+<center>
+#### * 2. Prueba de Breusch Pagan - Homocedasticidad * 
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \operatorname{Var}(\varepsilon_i) = \sigma^2 \quad \text{(los errores tienen varianza constante)} \\
+H_1 &: \operatorname{Var}(\varepsilon_i) \neq \sigma^2 \quad \text{(existe heterocedasticidad)}
+\end{aligned}
+$$
+
+```{r}
+
+bptest(modelo_final)
+```
+
+NO se rechaza la hipótesis nula con alpha=0.05,
+\textcolor{green}{ Existe homocedasticidad en el modelo completo}
+
+<center>
+#### * 3. Prueba de autocorrelacion de los errores - Durbin Watson *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \rho = 0 \quad \text{(no hay autocorrelación de los errores)} \\
+H_1 &: \rho \neq 0 \quad \text{(los errores están correlacionados)}
+\end{aligned}
+$$
+
+```{r}
+
+durbinWatsonTest(modelo_final)
+```
+
+NO se rechaza la hipotesis nula de que los errores son dependientes
+entre sí, se puede decir que
+\textcolor{green}{los errores son independientes entre si (ortogonales)}
+
+<center>
+####* 4. Prueba de normalidad de los errores- Shapiro *
+</center>
+
+$$
+\begin{aligned}
+H_0 &: \varepsilon_i \sim N(0, \sigma^2) \quad \text{(los residuos son normalmente distribuidos)} \\
+H_1 &: \varepsilon_i \not\sim N(0, \sigma^2) \quad \text{(los residuos no son normales)}
+\end{aligned}
+$$
+
+```{r}
+shapiro.test(modelo_final$residuals)
+```
+
+Se rechaza la hipotesis nula con un nivel de significancia de 0.05 de
+que el vector dado(residuales) tiene una distribución
+normal.\textcolor{red}{ NO Existe normalidad de los residuales } ,
+\textcolor{yellow}{¡por poco no se rechaza!}
+
+<center>
+#### * 5. Prueba de Varianza no constante* 
+</center>
+```{r}
+ncvTest(modelo_final)
+```
+
+<center>
+#### *VIF -  verificacion de inflación de varianza por colinealidad* 
+</center>
+```{r}
+vif(modelo_final)
+```
+
+Se logró el objetivo en este modelo: reducir el VIF, sin embargo se
+desajustó la normalidad de los errores, el valor p cambia a 0.03, lo que
+rompe el supuesto de normalidad por muy poco (Qqplot parece normal
+visualmente)
+
+En este caso, se preferirá este modelo final, es el mejor modelo hallado
+porque no tiene de colinealidad y se cumplen todos los supuestos,
+excepto el de normalidad con un nivel de si+gnificancia de 0.05 (si se
+usara un alpha de 0.01 - 0.03 se podria no rechazar h0, indicando
+normalidad)
+
+
+
+
+
+\`\`\`
